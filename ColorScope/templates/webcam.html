@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ColorScope – Webcam</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --text-color: #fff;
+      --panel-bg: rgba(255, 255, 255, 0.12);
+      --panel-hover: rgba(255, 255, 255, 0.22);
+      --chip-bg: rgba(255,255,255,0.14);
+      --chip-hover: rgba(255,255,255,0.22);
+      --accent: #00e1ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: #1a1a2e;
+      color: var(--text-color);
+      transition: background-color 0.3s ease, color 0.3s ease;
+      overflow-x: hidden;
+      position: relative;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(45deg, rgba(0,0,0,0.65), rgba(0,0,0,0.35));
+      background-size: 400% 400%;
+      animation: gradientMove 12s ease infinite;
+      z-index: -2;
+    }
+
+    #bgParticles {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    h1 { text-align: center; margin: 1.25rem 1rem 0.4rem; letter-spacing: 0.4px; }
+    p { text-align: center; margin: 0 1rem 1.25rem; opacity: 0.9; }
+
+    .wrap {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 1.25rem;
+      align-items: start;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 1rem 3rem;
+      width: 100%;
+    }
+    @media (max-width: 980px) { 
+      .wrap { grid-template-columns: 1fr; }
+      .panel { height: auto !important; }
+    }
+
+    .toolbar { display: flex; gap: .5rem; margin-bottom: .75rem; flex-wrap: wrap; }
+
+    button, .back-button, .logout-btn, .toggle-btn {
+      padding: .6rem 1rem;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.15);
+      cursor: pointer;
+      text-decoration: none;
+      color: var(--text-color);
+      font-weight: 500;
+      transition: background 0.2s ease, transform 0.2s ease, border-color .2s ease;
+      backdrop-filter: blur(6px);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    button:hover, .back-button:hover, .logout-btn:hover, .toggle-btn:hover {
+      background: var(--panel-hover);
+      transform: translateY(-1px);
+      border-color: rgba(255,255,255,0.6);
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
+    .back-button { position: fixed; top: 1rem; left: 1rem; margin: 0; width: max-content; z-index: 11; }
+
+    .stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #000;
+      box-shadow: 0 8px 0 rgba(0,0,0,.35) inset,
+                  0 1px 0 rgba(255,255,255,.08) inset,
+                  0 2px 12px rgba(0,0,0,.35);
+      margin: 0 auto;
+      transition: box-shadow .2s ease, transform .2s ease;
+    }
+    .stage.fullscreen { border-radius: 0; max-width: none; box-shadow: none; }
+    .stage::after {
+      content:"";
+      position:absolute; inset: 10px;
+      border-radius: 10px;
+      border: 2px solid rgba(255,255,255,.18);
+      pointer-events: none;
+    }
+    video { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+    .overlay { position: absolute; inset: 0; pointer-events: none; }
+    .overlay svg { width: 100%; height: 100%; display: block; }
+
+    .fs-info {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.65);
+      color: #fff;
+      padding: 0.6rem 1rem;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      display: none;
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,255,255,0.25);
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      z-index: 10;
+    }
+    .fs-info .swatch-mini { width: 40px; height: 25px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.35); }
+
+    .panel {
+      border-radius: 16px; padding: 1.1rem;
+      background: var(--panel-bg);
+      color: var(--text-color);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.37);
+      height: 100%;
+      align-self: stretch;
+    }
+
+    .kv { display: grid; grid-template-columns: 100px 1fr auto; column-gap: .75rem; row-gap: .55rem; align-items: center; }
+    .kv-label { opacity: .9; }
+    .copy-btn { padding: 0.4rem 0.6rem; border-radius: 8px; background: var(--chip-bg); border: 1px solid rgba(255,255,255,0.28); cursor: pointer; font-size: 0.85rem; transition: background .2s ease, transform .1s ease, border-color .2s ease; }
+    .copy-btn:hover { background: var(--chip-hover); transform: translateY(-1px); border-color: rgba(255,255,255,0.5); }
+
+    .swatch { width: 100%; height: 56px; border-radius: 8px; border: 1px solid rgba(255,255,255,.25); background: #888; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%) translateY(20px);
+      background: rgba(20, 20, 20, 0.8);
+      color: #fff;
+      padding: .6rem .9rem;
+      border-radius: 10px;
+      font-size: .9rem;
+      opacity: 0;
+      transition: opacity .25s ease, transform .25s ease;
+      pointer-events: none;
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .top-controls {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      display: flex;
+      gap: 0.5rem;
+      z-index: 11;
+    }
+
+    .top-controls .toggle-btn { position: static; top: auto; right: auto; }
+
+    @keyframes gradientMove {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    body.light {
+      --text-color: #111;
+      --panel-bg: rgba(0,0,0,0.06);
+      --panel-hover: rgba(0,0,0,0.08);
+      --chip-bg: rgba(0,0,0,0.06);
+      --chip-hover: rgba(0,0,0,0.08);
+      background-color: #f4f4f4;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="bgParticles"></canvas>
+
+  <a href="/" class="back-button">Back to Home</a>
+
+  <div class="top-controls">
+    <button id="toggleBtn" class="toggle-btn">Dark/Light</button>
+    <a href="/logout" class="logout-btn">Logout</a>
+  </div>
+
+  <h1>Live Webcam Detection</h1>
+  <p>Place an object at the <strong>center dot</strong>. We'll sample the pixel color there and classify it.</p>
+
+  <div class="wrap">
+    <!-- Color Codex Panel on the left -->
+    <aside class="panel">
+      <div class="kv">
+        <div class="kv-label">Detected</div>
+        <div id="colorName">—</div>
+        <div></div>
+
+        <div class="kv-label">HSV</div>
+        <div id="hsv">—</div>
+        <button class="copy-btn" data-copy-target="hsv">Copy</button>
+
+        <div class="kv-label">RGB</div>
+        <div id="rgb">—</div>
+        <button class="copy-btn" data-copy-target="rgb">Copy</button>
+
+        <div class="kv-label">HEX</div>
+        <div id="hex">—</div>
+        <button class="copy-btn" data-copy-target="hex">Copy</button>
+
+        <div class="kv-label">Swatch</div>
+        <div class="swatch" id="swatch"></div>
+      </div>
+    </aside>
+
+    <!-- Webcam Panel on the right -->
+    <div>
+      <div class="toolbar">
+        <button id="startBtn">Start Camera</button>
+        <button id="stopBtn" disabled>Stop</button>
+        <button id="fsBtn" title="Toggle Fullscreen">Fullscreen</button>
+      </div>
+
+      <div class="stage" id="stage" tabindex="0">
+        <video id="video" autoplay playsinline></video>
+        <div class="overlay" aria-hidden="true">
+          <svg viewBox="0 0 100 56" preserveAspectRatio="none">
+            <circle cx="50" cy="28" r="0.45" fill="black" stroke="red" stroke-width="0.12"/>
+          </svg>
+        </div>
+
+        <div class="fs-info" id="fsInfo">
+          <span id="fsName">—</span>
+          <span id="fsHSV">—</span>
+          <span id="fsRGB">—</span>
+          <span id="fsHEX">—</span>
+          <div class="swatch-mini" id="fsSwatch"></div>
+        </div>
+      </div>
+
+      <canvas id="canvas" style="display:none;"></canvas>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Copied!</div>
+
+  <script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    const colorNameEl = document.getElementById("colorName");
+    const hsvEl = document.getElementById("hsv");
+    const rgbEl = document.getElementById("rgb");
+    const hexEl = document.getElementById("hex");
+    const swatchEl = document.getElementById("swatch");
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const fsBtn = document.getElementById("fsBtn");
+    const stage = document.getElementById("stage");
+    const toast = document.getElementById("toast");
+
+    const fsInfo = document.getElementById("fsInfo");
+    const fsName = document.getElementById("fsName");
+    const fsHSV = document.getElementById("fsHSV");
+    const fsRGB = document.getElementById("fsRGB");
+    const fsHEX = document.getElementById("fsHEX");
+    const fsSwatch = document.getElementById("fsSwatch");
+
+    const toggleBtn = document.getElementById('toggleBtn');
+
+    let stream = null;
+    let ticker = null;
+
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+          audio: false
+        });
+        video.srcObject = stream;
+        await video.play();
+        resizeCanvasToDisplayedVideo();
+
+        ticker = setInterval(captureAndAnalyze, 500);
+        window.addEventListener("resize", resizeCanvasToDisplayedVideo);
+
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+      } catch (err) {
+        alert("Camera error: " + err.message);
+      }
+    }
+
+    function stopCamera() {
+      if (ticker) { clearInterval(ticker); ticker = null; }
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      window.removeEventListener("resize", resizeCanvasToDisplayedVideo);
+
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    }
+
+    function resizeCanvasToDisplayedVideo() {
+      const rect = video.getBoundingClientRect();
+      canvas.width = Math.round(rect.width);
+      canvas.height = Math.round(rect.height);
+    }
+
+    async function captureAndAnalyze() {
+      if (!video.videoWidth || !video.videoHeight) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      const centerX = Math.floor(canvas.width / 2);
+      const centerY = Math.floor(canvas.height / 2);
+      const pixelData = ctx.getImageData(centerX, centerY, 1, 1).data;
+      
+      const rgb = { r: pixelData[0], g: pixelData[1], b: pixelData[2] };
+      const hex = rgbToHex(rgb.r, rgb.g, rgb.b);
+      const hsv = rgbToHsv(rgb.r, rgb.g, rgb.b);
+      const colorName = getColorName(rgb);
+      
+      colorNameEl.textContent = colorName;
+      hsvEl.textContent = `H:${Math.round(hsv.h)} S:${Math.round(hsv.s)} V:${Math.round(hsv.v)}`;
+      rgbEl.textContent = `R:${rgb.r} G:${rgb.g} B:${rgb.b}`;
+      hexEl.textContent = hex;
+      swatchEl.style.background = hex;
+
+      if (document.fullscreenElement) {
+        fsName.textContent = colorName;
+        fsHSV.textContent = `HSV: ${Math.round(hsv.h)},${Math.round(hsv.s)},${Math.round(hsv.v)}`;
+        fsRGB.textContent = `RGB: ${rgb.r},${rgb.g},${rgb.b}`;
+        fsHEX.textContent = hex;
+        fsSwatch.style.background = hex;
+      }
+    }
+
+    function rgbToHex(r, g, b) {
+      return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+    }
+
+    function rgbToHsv(r, g, b) {
+      r /= 255, g /= 255, b /= 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      let h, s, v = max;
+      const d = max - min;
+      s = max === 0 ? 0 : d / max;
+
+      if (max === min) h = 0;
+      else {
+        switch (max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+          case g: h = (b - r) / d + 2; break;
+          case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
+      }
+
+      return { h: Math.round(h * 360), s: Math.round(s * 100), v: Math.round(v * 100) };
+    }
+
+    function getColorName(rgb) {
+      const {r, g, b} = rgb;
+      if (r > 200 && g < 100 && b < 100) return "Red";
+      if (r < 100 && g > 200 && b < 100) return "Green";
+      if (r < 100 && g < 100 && b > 200) return "Blue";
+      if (r > 200 && g > 200 && b < 100) return "Yellow";
+      if (r > 200 && g < 100 && b > 200) return "Magenta";
+      if (r < 100 && g > 200 && b > 200) return "Cyan";
+      if (r > 200 && g > 200 && b > 200) return "White";
+      if (r < 50 && g < 50 && b < 50) return "Black";
+      if (Math.abs(r - g) < 30 && Math.abs(g - b) < 30 && Math.abs(b - r) < 30) {
+        if (r > 180) return "Light Gray";
+        if (r > 100) return "Gray";
+        return "Dark Gray";
+      }
+      return "Custom Color";
+    }
+
+    startBtn.addEventListener("click", startCamera);
+    stopBtn.addEventListener("click", stopCamera);
+
+    document.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".copy-btn");
+      if (!btn) return;
+      const targetId = btn.getAttribute("data-copy-target");
+      const el = document.getElementById(targetId);
+      if (!el) return;
+
+      const text = el.textContent.trim();
+      try { await navigator.clipboard.writeText(text); showToast(`Copied ${targetId.toUpperCase()}!`); }
+      catch { showToast("Copy failed"); }
+    });
+
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add("show");
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toast.classList.remove("show"), 1200);
+    }
+
+    async function toggleFullscreen() {
+      const el = stage;
+      const isFull = !!document.fullscreenElement;
+      try {
+        if (!isFull) { await el.requestFullscreen(); el.classList.add("fullscreen"); fsInfo.style.display = "flex"; }
+        else { await document.exitFullscreen(); el.classList.remove("fullscreen"); fsInfo.style.display = "none"; }
+      } catch(e){console.error(e);}
+    }
+    fsBtn.addEventListener("click", toggleFullscreen);
+    document.addEventListener("fullscreenchange", () => {
+      if (!document.fullscreenElement) { stage.classList.remove("fullscreen"); fsInfo.style.display = "none"; }
+      resizeCanvasToDisplayedVideo();
+    });
+
+    function toggleMode() { document.body.classList.toggle("light"); }
+    toggleBtn.addEventListener('click', toggleMode);
+
+    // Background particles
+    (function initParticles() {
+      const canvas = document.getElementById('bgParticles');
+      const ctx = canvas.getContext('2d');
+      let w, h, particles;
+
+      function resize() { w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; spawnParticles(); }
+      function rand(min,max){ return Math.random()*(max-min)+min; }
+      function spawnParticles() {
+        const count = Math.min(80, Math.floor((w*h)/20000));
+        particles = Array.from({length:count},()=>({x:rand(0,w),y:rand(0,h),dx:rand(-0.4,0.4),dy:rand(-0.4,0.4),r:rand(1,2.2)}));
+      }
+      function draw() {
+        ctx.clearRect(0,0,w,h);
+        ctx.fillStyle="rgba(255,255,255,0.5)";
+        for(const p of particles){
+          ctx.beginPath();
+          ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+          ctx.fill();
+          p.x+=p.dx; p.y+=p.dy;
+          if(p.x<0||p.x>w)p.dx*=-1;
+          if(p.y<0||p.y>h)p.dy*=-1;
+        }
+        requestAnimationFrame(draw);
+      }
+      resize(); draw();
+      window.addEventListener("resize",resize);
+    })();
+  </script>
+
+  <footer class="footer">
+  <p>© 2025 ColorScope™ — Real-time and image-based color detection powered by Flask & OpenCV</p>
+</footer>
+
+<style>
+  footer.footer {
+    margin-top: auto;
+    padding: 0.5rem;
+    font-size: 0.75rem;
+    text-align: center;
+    width: 100%;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+    letter-spacing: 0.3px;
+    transition: background 0.4s ease;
+  }
+  body.light footer.footer {
+    background: rgba(255,255,255,0.65);
+    color: #222;
+  }
+  
+</style>
+</body>
+</html>
